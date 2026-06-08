@@ -104,8 +104,9 @@ def create_app():
             result['confidence_interval_95_low'] = max(0.0, ci_low)
             result['confidence_interval_95_high'] = min(1.0, ci_high)
             
-            if result.get('collision_times'):
-                result['collision_times'] = result['collision_times'][:1000]
+            if 'collision_times_sample' in result:
+                result['collision_times'] = result['collision_times_sample']
+                del result['collision_times_sample']
             
             cache.set_task_result(task_id, result)
             cache.cache_result(params_dict, result)

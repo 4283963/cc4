@@ -2,29 +2,17 @@ import numpy as np
 import multiprocessing as mp
 from typing import List, Dict, Callable, Optional
 from ..core.vehicle import VehicleParams
-from ..core.monte_carlo import run_monte_carlo_batch
+from ..core.monte_carlo import run_monte_carlo_batch, merge_batch_stats
 from ..config import Config
-
-
-def _worker_func(params_list_serializable, num_sims, dt, t_max, base_seed, queue):
-    params_list = [VehicleParams(**p) for p in params_list_serializable]
-    collision_count, collision_times = run_monte_carlo_batch(
-        params_list, num_sims, dt, t_max, base_seed
-    )
-    queue.put({
-        'collision_count': collision_count,
-        'collision_times': collision_times,
-        'num_simulations': num_sims
-    })
 
 
 def _worker_func_pool(args):
     params_list_serializable, num_sims, dt, t_max, base_seed = args
     params_list = [VehicleParams(**p) for p in params_list_serializable]
-    collision_count, collision_times = run_monte_carlo_batch(
+    collision_count, stats_dict = run_monte_carlo_batch(
         params_list, num_sims, dt, t_max, base_seed
     )
-    return collision_count, collision_times
+    return collision_count, stats_dict
 
 
 class ParallelScheduler:
@@ -63,16 +51,16 @@ class ParallelScheduler:
                 current_seed += sims_for_batch
         
         total_collisions = 0
-        all_collision_times = []
+        batch_stats_list = []
         completed_sims = 0
         
         with mp.Pool(processes=self.num_processes) as pool:
             async_results = [pool.apply_async(_worker_func_pool, (task,)) for task in tasks]
             
             for async_result in async_results:
-                collision_count, collision_times = async_result.get()
+                collision_count, stats_dict = async_result.get()
                 total_collisions += collision_count
-                all_collision_times.extend(collision_times)
+                batch_stats_list.append(stats_dict)
                 completed_sims += batch_size
                 
                 if progress_callback:
@@ -80,19 +68,22 @@ class ParallelScheduler:
         
         collision_probability = total_collisions / num_simulations
         
+        merged_stats = merge_batch_stats(batch_stats_list)
+        
         result = {
             'num_simulations': num_simulations,
             'collision_count': total_collisions,
             'collision_probability': collision_probability,
-            'collision_times': all_collision_times,
             'num_processes_used': self.num_processes
         }
         
-        if all_collision_times:
-            result['mean_collision_time'] = float(np.mean(all_collision_times))
-            result['std_collision_time'] = float(np.std(all_collision_times))
-            result['min_collision_time'] = float(np.min(all_collision_times))
-            result['max_collision_time'] = float(np.max(all_collision_times))
+        if merged_stats and merged_stats.get('count', 0) > 0:
+            result['mean_collision_time'] = float(merged_stats['mean'])
+            result['std_collision_time'] = float(merged_stats['std'])
+            result['min_collision_time'] = float(merged_stats['min'])
+            result['max_collision_time'] = float(merged_stats['max'])
+            result['collision_time_count'] = merged_stats['count']
+            result['collision_times_sample'] = merged_stats.get('samples', [])
         
         return result
     
