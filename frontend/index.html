@@ -34,6 +34,21 @@
                 </div>
 
                 <div class="section">
+                    <h2>🌧️ 路面条件</h2>
+                    <div class="form-group">
+                        <label>当前路面</label>
+                        <select id="roadCondition">
+                            <option value="dry_asphalt">☀️ 晴天干燥路面 (μ=0.85)</option>
+                            <option value="wet_light">🌧️ 小雨路面 (μ=0.65)</option>
+                            <option value="heavy_rain">⛈️ 大雨路面 (μ=0.45)</option>
+                            <option value="snow">❄️ 积雪路面 (μ=0.25)</option>
+                            <option value="icy">🧊 结冰路面 (μ=0.15)</option>
+                        </select>
+                    </div>
+                    <p class="hint" id="roadDesc">干燥沥青路面，轮胎抓地力最佳</p>
+                </div>
+
+                <div class="section">
                     <h2>⚙️ 模拟参数</h2>
                     <div class="form-group">
                         <label>模拟次数</label>
@@ -56,6 +71,9 @@
                 <div class="section">
                     <button id="computeBtn" class="btn btn-primary btn-block btn-large">
                         🚀 开始碰撞概率计算
+                    </button>
+                    <button id="compareBtn" class="btn btn-outline btn-block" style="margin-top: 10px;">
+                        📊 多路面场景垂直对比
                     </button>
                 </div>
 
@@ -89,6 +107,35 @@
                             <span class="result-value" id="meanCollisionTime">-</span>
                         </div>
                     </div>
+                </div>
+
+                <div class="section" id="compareSection" style="display: none;">
+                    <h2>📋 多场景对比</h2>
+                    <div class="progress-container" id="compareProgressContainer" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="compareProgressFill"></div>
+                        </div>
+                        <span class="progress-text" id="compareProgressText">0%</span>
+                    </div>
+                    <div class="compare-table-container" id="compareTableContainer">
+                        <table class="compare-table">
+                            <thead>
+                                <tr>
+                                    <th>路面条件</th>
+                                    <th>碰撞概率</th>
+                                    <th>95%置信区间</th>
+                                    <th>相对变化</th>
+                                    <th>碰撞次数</th>
+                                    <th>平均碰撞时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="compareTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="compare-note" id="compareNote" style="display: none;">
+                        * 以晴天干燥路面为基准
+                    </p>
                 </div>
 
                 <div class="section">

@@ -99,7 +99,8 @@ class ParallelScheduler:
             'direction': params.direction,
             'velocity_noise_std': params.velocity_noise_std,
             'acceleration_noise_std': params.acceleration_noise_std,
-            'position_noise_std': params.position_noise_std
+            'position_noise_std': params.position_noise_std,
+            'road_condition': params.road_condition
         }
 
 

@@ -19,10 +19,23 @@ class CollisionSimulationApp {
         
         this.currentTaskId = null;
         this.pollingInterval = null;
+        this.compareTaskId = null;
+        this.comparePollingInterval = null;
         
         this.editingVehicleIndex = -1;
         
         this.vehicleColors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+        
+        this.roadCondition = 'dry_asphalt';
+        this.roadConditions = {
+            'dry_asphalt': { name: '晴天干燥路面', icon: '☀️', mu: 0.85, desc: '干燥沥青路面，轮胎抓地力最佳' },
+            'wet_light': { name: '小雨路面', icon: '🌧️', mu: 0.65, desc: '小雨路面，摩擦系数略有下降' },
+            'heavy_rain': { name: '大雨路面', icon: '⛈️', mu: 0.45, desc: '大雨路面，水滑效应明显，制动距离增加' },
+            'snow': { name: '积雪路面', icon: '❄️', mu: 0.25, desc: '积雪路面，摩擦系数较低，车辆易打滑' },
+            'icy': { name: '结冰路面', icon: '🧊', mu: 0.15, desc: '结冰路面，摩擦系数极低，极易侧滑' }
+        };
+        
+        this.compareConditions = ['dry_asphalt', 'wet_light', 'heavy_rain', 'icy'];
         
         this.init();
     }
@@ -54,6 +67,13 @@ class CollisionSimulationApp {
         
         document.getElementById('addVehicleBtn').addEventListener('click', () => this.openAddVehicleModal());
         document.getElementById('computeBtn').addEventListener('click', () => this.startComputation());
+        document.getElementById('compareBtn').addEventListener('click', () => this.startComparison());
+        
+        document.getElementById('roadCondition').addEventListener('change', (e) => {
+            this.roadCondition = e.target.value;
+            this.updateRoadDescription();
+            this.fetchTrajectory();
+        });
         
         document.getElementById('closeModal').addEventListener('click', () => this.closeModal());
         document.getElementById('cancelVehicle').addEventListener('click', () => this.closeModal());
@@ -223,6 +243,7 @@ class CollisionSimulationApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     vehicles: this.vehicles,
+                    road_condition: this.roadCondition,
                     dt: 0.05,
                     t_max: 30,
                     add_noise: false,
@@ -235,6 +256,13 @@ class CollisionSimulationApp {
             this.currentTime = 0;
         } catch (err) {
             console.error('获取轨迹失败:', err);
+        }
+    }
+    
+    updateRoadDescription() {
+        const road = this.roadConditions[this.roadCondition];
+        if (road) {
+            document.getElementById('roadDesc').textContent = road.desc;
         }
     }
     
@@ -470,6 +498,7 @@ class CollisionSimulationApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     vehicles: this.vehicles,
+                    road_condition: this.roadCondition,
                     num_simulations: simCount,
                     dt: dt,
                     t_max: tMax,
@@ -555,6 +584,166 @@ class CollisionSimulationApp {
         } else {
             document.getElementById('timeStats').style.display = 'none';
         }
+    }
+    
+    async startComparison() {
+        if (this.vehicles.length < 2) {
+            alert('至少需要两辆车才能进行对比计算');
+            return;
+        }
+        
+        const simCount = parseInt(document.getElementById('simCount').value) || 100000;
+        const dt = parseFloat(document.getElementById('timeStep').value) || 0.01;
+        const tMax = parseFloat(document.getElementById('maxTime').value) || 30;
+        const baseSeed = parseInt(document.getElementById('baseSeed').value) || 42;
+        
+        document.getElementById('compareSection').style.display = 'block';
+        document.getElementById('compareProgressContainer').style.display = 'block';
+        document.getElementById('compareProgressFill').style.width = '0%';
+        document.getElementById('compareProgressText').textContent = '0%';
+        document.getElementById('compareTableContainer').style.opacity = '0.5';
+        document.getElementById('compareNote').style.display = 'none';
+        
+        document.getElementById('compareBtn').disabled = true;
+        document.getElementById('compareBtn').textContent = '⏳ 对比计算中...';
+        
+        try {
+            const response = await fetch('/api/compute/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    vehicles: this.vehicles,
+                    conditions: this.compareConditions,
+                    num_simulations: simCount,
+                    dt: dt,
+                    t_max: tMax,
+                    base_seed: baseSeed
+                })
+            });
+            
+            const data = await response.json();
+            this.compareTaskId = data.comparison_id;
+            this.pollCompareStatus();
+        } catch (err) {
+            console.error('对比计算失败:', err);
+            alert('对比计算请求失败，请检查后端服务是否运行');
+            document.getElementById('compareBtn').disabled = false;
+            document.getElementById('compareBtn').textContent = '📊 多路面场景垂直对比';
+        }
+    }
+    
+    pollCompareStatus() {
+        if (!this.compareTaskId) return;
+        
+        if (this.comparePollingInterval) {
+            clearInterval(this.comparePollingInterval);
+        }
+        
+        this.comparePollingInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/compare/status/${this.compareTaskId}`);
+                const data = await response.json();
+                
+                const progress = data.progress || 0;
+                document.getElementById('compareProgressFill').style.width = progress + '%';
+                document.getElementById('compareProgressText').textContent = progress + '%';
+                
+                if (data.status === 'completed') {
+                    clearInterval(this.comparePollingInterval);
+                    this.comparePollingInterval = null;
+                    
+                    const resultResponse = await fetch(`/api/compare/result/${this.compareTaskId}`);
+                    const resultData = await resultResponse.json();
+                    
+                    this.renderCompareTable(resultData);
+                    
+                    document.getElementById('compareBtn').disabled = false;
+                    document.getElementById('compareBtn').textContent = '📊 多路面场景垂直对比';
+                    document.getElementById('compareNote').style.display = 'block';
+                }
+            } catch (err) {
+                console.error('轮询对比状态失败:', err);
+            }
+        }, 500);
+    }
+    
+    renderCompareTable(data) {
+        document.getElementById('compareTableContainer').style.opacity = '1';
+        
+        const tbody = document.getElementById('compareTableBody');
+        tbody.innerHTML = '';
+        
+        const results = data.results || {};
+        const baseline = data.baseline || 'dry_asphalt';
+        const conditions = data.conditions || this.compareConditions;
+        
+        conditions.forEach((cond) => {
+            const result = results[cond];
+            const road = this.roadConditions[cond] || { name: cond, icon: '🚗' };
+            
+            const tr = document.createElement('tr');
+            if (cond === baseline) {
+                tr.className = 'baseline';
+            }
+            
+            let probText = '-';
+            let changeText = '-';
+            let changeClass = 'change-neutral';
+            let timeText = '-';
+            let ciText = '-';
+            let countText = '-';
+            
+            if (result) {
+                const prob = result.collision_probability * 100;
+                probText = prob.toFixed(2) + '%';
+                
+                if (result.confidence_interval_95_low !== undefined && 
+                    result.confidence_interval_95_high !== undefined) {
+                    const ciLow = result.confidence_interval_95_low * 100;
+                    const ciHigh = result.confidence_interval_95_high * 100;
+                    ciText = `[${ciLow.toFixed(2)}%, ${ciHigh.toFixed(2)}%]`;
+                }
+                
+                if (result.collision_count !== undefined && 
+                    result.num_simulations !== undefined) {
+                    countText = `${result.collision_count} / ${result.num_simulations}`;
+                }
+                
+                if (result.change_from_baseline_pct !== undefined && cond !== baseline) {
+                    const change = result.change_from_baseline_pct;
+                    const absChange = result.change_absolute * 100;
+                    if (change > 0) {
+                        changeText = `↑ +${change.toFixed(1)}% (+${absChange.toFixed(2)}pp)`;
+                        changeClass = 'change-increase';
+                    } else if (change < 0) {
+                        changeText = `↓ ${change.toFixed(1)}% (${absChange.toFixed(2)}pp)`;
+                        changeClass = 'change-decrease';
+                    } else {
+                        changeText = '—';
+                    }
+                } else if (cond === baseline) {
+                    changeText = '基准';
+                }
+                
+                if (result.mean_collision_time !== undefined) {
+                    timeText = result.mean_collision_time.toFixed(2) + 's';
+                }
+            }
+            
+            tr.innerHTML = `
+                <td>
+                    <span class="road-icon">${road.icon}</span>
+                    ${road.name}
+                </td>
+                <td class="prob-value">${probText}</td>
+                <td class="ci-value">${ciText}</td>
+                <td class="${changeClass}">${changeText}</td>
+                <td class="count-value">${countText}</td>
+                <td class="time-value">${timeText}</td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
     }
 }
 

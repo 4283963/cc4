@@ -4,10 +4,64 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 
-from ..core.vehicle import VehicleParams
+from ..core.vehicle import VehicleParams, list_road_conditions
+from ..core.tire_model import list_road_conditions as list_road_conds_tire
 from ..scheduler.parallel import ParallelScheduler
 from ..cache.redis_cache import get_cache
 from ..config import Config
+
+
+def _build_params_list(vehicles_data, default_road_condition=None):
+    params_list = []
+    for v_data in vehicles_data:
+        road_cond = v_data.get('road_condition', default_road_condition or 'dry_asphalt')
+        params = VehicleParams(
+            vehicle_id=v_data.get('id', len(params_list)),
+            initial_velocity=v_data.get('initial_velocity', 10.0),
+            acceleration=v_data.get('acceleration', 0.0),
+            length=v_data.get('length', 4.5),
+            width=v_data.get('width', 2.0),
+            start_x=v_data.get('start_x', 0.0),
+            start_y=v_data.get('start_y', 0.0),
+            direction=v_data.get('direction', 0.0),
+            velocity_noise_std=v_data.get('velocity_noise_std', 0.0),
+            acceleration_noise_std=v_data.get('acceleration_noise_std', 0.0),
+            position_noise_std=v_data.get('position_noise_std', 0.0),
+            road_condition=road_cond
+        )
+        params_list.append(params)
+    return params_list
+
+
+def _params_to_dict_list(params_list):
+    return [{
+        'vehicle_id': p.vehicle_id,
+        'initial_velocity': p.initial_velocity,
+        'acceleration': p.acceleration,
+        'length': p.length,
+        'width': p.width,
+        'start_x': p.start_x,
+        'start_y': p.start_y,
+        'direction': p.direction,
+        'velocity_noise_std': p.velocity_noise_std,
+        'acceleration_noise_std': p.acceleration_noise_std,
+        'position_noise_std': p.position_noise_std,
+        'road_condition': p.road_condition
+    } for p in params_list]
+
+
+def _add_confidence_interval(result, num_simulations):
+    from ..core.monte_carlo import compute_confidence_interval
+    p = result['collision_probability']
+    ci_low, ci_high = compute_confidence_interval(p, num_simulations)
+    result['confidence_interval_95_low'] = max(0.0, ci_low)
+    result['confidence_interval_95_high'] = min(1.0, ci_high)
+    
+    if 'collision_times_sample' in result:
+        result['collision_times'] = result['collision_times_sample']
+        del result['collision_times_sample']
+    
+    return result
 
 
 def create_app():
@@ -29,6 +83,14 @@ def create_app():
             'num_processes': scheduler.num_processes
         })
     
+    @app.route('/api/road-conditions', methods=['GET'])
+    def get_road_conditions():
+        conditions = list_road_conds_tire()
+        return jsonify({
+            'conditions': conditions,
+            'default': 'dry_asphalt'
+        })
+    
     @app.route('/api/compute', methods=['POST'])
     def start_computation():
         data = request.get_json()
@@ -37,34 +99,21 @@ def create_app():
             return jsonify({'error': 'Missing vehicles data'}), 400
         
         vehicles_data = data['vehicles']
+        road_condition = data.get('road_condition', None)
         num_simulations = data.get('num_simulations', Config.MONTE_CARLO_SIMULATIONS)
         dt = data.get('dt', Config.TIME_STEP)
         t_max = data.get('t_max', Config.MAX_SIMULATION_TIME)
         base_seed = data.get('base_seed', 42)
         
-        params_list = []
-        for v_data in vehicles_data:
-            params = VehicleParams(
-                vehicle_id=v_data.get('id', len(params_list)),
-                initial_velocity=v_data.get('initial_velocity', 10.0),
-                acceleration=v_data.get('acceleration', 0.0),
-                length=v_data.get('length', 4.5),
-                width=v_data.get('width', 2.0),
-                start_x=v_data.get('start_x', 0.0),
-                start_y=v_data.get('start_y', 0.0),
-                direction=v_data.get('direction', 0.0),
-                velocity_noise_std=v_data.get('velocity_noise_std', 0.0),
-                acceleration_noise_std=v_data.get('acceleration_noise_std', 0.0),
-                position_noise_std=v_data.get('position_noise_std', 0.0)
-            )
-            params_list.append(params)
+        params_list = _build_params_list(vehicles_data, road_condition)
         
         params_dict = {
-            'vehicles': [vars(p) for p in params_list],
+            'vehicles': _params_to_dict_list(params_list),
             'num_simulations': num_simulations,
             'dt': dt,
             't_max': t_max,
-            'base_seed': base_seed
+            'base_seed': base_seed,
+            'road_condition': road_condition
         }
         
         cached_result = cache.get_cached_result(params_dict)
@@ -73,6 +122,7 @@ def create_app():
                 'task_id': 'cached',
                 'status': 'completed',
                 'result': cached_result,
+                'road_condition': road_condition or params_list[0].road_condition,
                 'from_cache': True
             })
         
@@ -98,15 +148,8 @@ def create_app():
                 progress_callback=progress_callback
             )
             
-            from ..core.monte_carlo import compute_confidence_interval
-            p = result['collision_probability']
-            ci_low, ci_high = compute_confidence_interval(p, num_simulations)
-            result['confidence_interval_95_low'] = max(0.0, ci_low)
-            result['confidence_interval_95_high'] = min(1.0, ci_high)
-            
-            if 'collision_times_sample' in result:
-                result['collision_times'] = result['collision_times_sample']
-                del result['collision_times_sample']
+            result = _add_confidence_interval(result, num_simulations)
+            result['road_condition'] = road_condition or params_list[0].road_condition
             
             cache.set_task_result(task_id, result)
             cache.cache_result(params_dict, result)
@@ -117,8 +160,118 @@ def create_app():
         return jsonify({
             'task_id': task_id,
             'status': 'queued',
+            'road_condition': road_condition or params_list[0].road_condition,
             'from_cache': False
         })
+    
+    @app.route('/api/compute/compare', methods=['POST'])
+    def compare_conditions():
+        data = request.get_json()
+        
+        if not data or 'vehicles' not in data:
+            return jsonify({'error': 'Missing vehicles data'}), 400
+        
+        vehicles_data = data['vehicles']
+        conditions = data.get('conditions', ['dry_asphalt', 'wet_light', 'heavy_rain', 'icy'])
+        num_simulations = data.get('num_simulations', Config.MONTE_CARLO_SIMULATIONS)
+        dt = data.get('dt', Config.TIME_STEP)
+        t_max = data.get('t_max', Config.MAX_SIMULATION_TIME)
+        base_seed = data.get('base_seed', 42)
+        
+        if len(conditions) == 0:
+            return jsonify({'error': 'No conditions specified'}), 400
+        
+        comparison_id = str(uuid.uuid4())
+        
+        cache.set_task_status(comparison_id, 'queued', progress=0)
+        
+        from threading import Thread
+        
+        def run_comparison():
+            cache.set_task_status(comparison_id, 'running', progress=0)
+            
+            results = {}
+            total_conditions = len(conditions)
+            
+            for idx, cond in enumerate(conditions):
+                params_list = _build_params_list(vehicles_data, cond)
+                
+                result = scheduler.run_parallel_monte_carlo(
+                    params_list,
+                    num_simulations=num_simulations,
+                    dt=dt,
+                    t_max=t_max,
+                    base_seed=base_seed
+                )
+                
+                result = _add_confidence_interval(result, num_simulations)
+                result['road_condition'] = cond
+                result['road_display_name'] = _get_road_display_name(cond)
+                results[cond] = result
+                
+                progress = int(((idx + 1) / total_conditions) * 100)
+                cache.update_task_progress(comparison_id, progress)
+            
+            comparison_result = {
+                'comparison_id': comparison_id,
+                'conditions': conditions,
+                'results': results,
+                'num_simulations': num_simulations,
+                'baseline': conditions[0] if conditions else 'dry_asphalt'
+            }
+            
+            cache.set_task_result(comparison_id, comparison_result)
+        
+        thread = Thread(target=run_comparison, daemon=True)
+        thread.start()
+        
+        return jsonify({
+            'comparison_id': comparison_id,
+            'task_id': comparison_id,
+            'status': 'queued',
+            'conditions': conditions
+        })
+    
+    @app.route('/api/compare/status/<comparison_id>', methods=['GET'])
+    def get_comparison_status(comparison_id):
+        status = cache.get_task_status(comparison_id)
+        
+        if status is None:
+            return jsonify({'error': 'Comparison not found'}), 404
+        
+        return jsonify(status)
+    
+    @app.route('/api/compare/result/<comparison_id>', methods=['GET'])
+    def get_comparison_result(comparison_id):
+        status = cache.get_task_status(comparison_id)
+        
+        if status is None:
+            return jsonify({'error': 'Comparison not found'}), 404
+        
+        if status['status'] != 'completed':
+            return jsonify({
+                'comparison_id': comparison_id,
+                'status': status['status'],
+                'progress': status.get('progress', 0)
+            })
+        
+        result = status['result']
+        
+        baseline = result.get('baseline', 'dry_asphalt')
+        baseline_prob = None
+        if baseline in result.get('results', {}):
+            baseline_prob = result['results'][baseline]['collision_probability']
+        
+        for cond, res in result.get('results', {}).items():
+            if baseline_prob is not None and baseline_prob > 0:
+                change_pct = ((res['collision_probability'] - baseline_prob) / baseline_prob) * 100
+                res['change_from_baseline_pct'] = round(change_pct, 2)
+                res['change_absolute'] = round(res['collision_probability'] - baseline_prob, 6)
+            else:
+                res['change_from_baseline_pct'] = 0.0
+                res['change_absolute'] = 0.0
+        
+        return jsonify(result)
     
     @app.route('/api/status/<task_id>', methods=['GET'])
     def get_status(task_id):
@@ -157,6 +310,7 @@ def create_app():
             return jsonify({'error': 'Missing vehicles data'}), 400
         
         vehicles_data = data['vehicles']
+        road_condition = data.get('road_condition', None)
         dt = data.get('dt', 0.05)
         t_max = data.get('t_max', Config.MAX_SIMULATION_TIME)
         add_noise = data.get('add_noise', False)
@@ -166,6 +320,7 @@ def create_app():
         
         trajectories = []
         for v_data in vehicles_data:
+            road_cond = v_data.get('road_condition', road_condition or 'dry_asphalt')
             params = VehicleParams(
                 vehicle_id=v_data.get('id', 0),
                 initial_velocity=v_data.get('initial_velocity', 10.0),
@@ -177,7 +332,8 @@ def create_app():
                 direction=v_data.get('direction', 0.0),
                 velocity_noise_std=v_data.get('velocity_noise_std', 0.0),
                 acceleration_noise_std=v_data.get('acceleration_noise_std', 0.0),
-                position_noise_std=v_data.get('position_noise_std', 0.0)
+                position_noise_std=v_data.get('position_noise_std', 0.0),
+                road_condition=road_cond
             )
             
             noise = None
@@ -195,6 +351,7 @@ def create_app():
                     'x': round(state.x, 4),
                     'y': round(state.y, 4),
                     'v': round(state.v, 4),
+                    'a': round(state.a, 4),
                     'theta': round(state.theta, 6),
                     'length': state.length,
                     'width': state.width
@@ -203,13 +360,15 @@ def create_app():
             
             trajectories.append({
                 'vehicle_id': params.vehicle_id,
+                'road_condition': road_cond,
                 'trajectory': trajectory
             })
         
         return jsonify({
             'trajectories': trajectories,
             'dt': dt,
-            't_max': t_max
+            't_max': t_max,
+            'road_condition': road_condition
         })
     
     @app.route('/api/intersection-info', methods=['GET'])
@@ -220,6 +379,13 @@ def create_app():
         })
     
     return app
+
+
+def _get_road_display_name(condition_name: str) -> str:
+    from ..core.tire_model import ROAD_CONDITIONS
+    if condition_name in ROAD_CONDITIONS:
+        return ROAD_CONDITIONS[condition_name].display_name
+    return condition_name
 
 
 if __name__ == '__main__':

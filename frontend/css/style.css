@@ -451,3 +451,147 @@ header h1 {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 14px;
+    transition: border-color 0.2s;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+}
+
+.form-group select:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.form-group select option {
+    background: #1a1a2e;
+    color: #fff;
+}
+
+.hint {
+    font-size: 12px;
+    color: #888;
+    margin-top: 8px;
+    line-height: 1.4;
+}
+
+.compare-table-container {
+    overflow-x: auto;
+    margin-top: 12px;
+}
+
+.compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.compare-table th {
+    text-align: left;
+    padding: 10px 8px;
+    color: #a0a0a0;
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.compare-table td {
+    padding: 12px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+}
+
+.compare-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.compare-table tbody tr.baseline {
+    background: rgba(52, 152, 219, 0.1);
+}
+
+.compare-table .prob-value {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.compare-table .ci-value {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+}
+
+.compare-table .count-value {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #a0a0a0;
+}
+
+.compare-table .change-increase {
+    color: #e74c3c;
+    font-weight: 600;
+}
+
+.compare-table .change-decrease {
+    color: #2ecc71;
+    font-weight: 600;
+}
+
+.compare-table .change-neutral {
+    color: #888;
+}
+
+.compare-table .time-value {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+}
+
+.compare-note {
+    font-size: 11px;
+    color: #666;
+    margin-top: 12px;
+    text-align: right;
+}
+
+.road-icon {
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 14px;
+}
+
+.result-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-high {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+}
+
+.badge-medium {
+    background: rgba(241, 196, 15, 0.2);
+    color: #f1c40f;
+}
+
+.badge-low {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+}
