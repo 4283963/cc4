@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自动驾驶车辆交叉碰撞概率计算系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚗 十字路口自动驾驶车辆碰撞概率计算系统</h1>
+            <p class="subtitle">基于蒙特卡洛方法的高精度轨迹交叉碰撞概率科学计算</p>
+        </header>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="canvas-container">
+                    <canvas id="simulationCanvas" width="600" height="600"></canvas>
+                    <div class="canvas-controls">
+                        <button id="playBtn" class="btn btn-primary">▶ 播放</button>
+                        <button id="pauseBtn" class="btn btn-secondary">⏸ 暂停</button>
+                        <button id="resetBtn" class="btn btn-secondary">↺ 重置</button>
+                        <span class="time-display">时间: <span id="timeDisplay">0.00</span>s</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="section">
+                    <h2>📊 车辆参数配置</h2>
+                    <div id="vehicleList" class="vehicle-list"></div>
+                    <button id="addVehicleBtn" class="btn btn-outline btn-block">+ 添加车辆</button>
+                </div>
+
+                <div class="section">
+                    <h2>⚙️ 模拟参数</h2>
+                    <div class="form-group">
+                        <label>模拟次数</label>
+                        <input type="number" id="simCount" value="100000" min="1000" max="1000000" step="1000">
+                    </div>
+                    <div class="form-group">
+                        <label>时间步长 (s)</label>
+                        <input type="number" id="timeStep" value="0.01" min="0.001" max="0.1" step="0.001">
+                    </div>
+                    <div class="form-group">
+                        <label>最大模拟时间 (s)</label>
+                        <input type="number" id="maxTime" value="30" min="1" max="120" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>随机种子</label>
+                        <input type="number" id="baseSeed" value="42" min="0" step="1">
+                    </div>
+                </div>
+
+                <div class="section">
+                    <button id="computeBtn" class="btn btn-primary btn-block btn-large">
+                        🚀 开始碰撞概率计算
+                    </button>
+                </div>
+
+                <div class="section" id="resultSection" style="display: none;">
+                    <h2>📈 计算结果</h2>
+                    <div class="progress-container" id="progressContainer" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <span class="progress-text" id="progressText">0%</span>
+                    </div>
+                    <div class="result-box" id="resultBox">
+                        <div class="result-item">
+                            <span class="result-label">碰撞概率</span>
+                            <span class="result-value" id="collisionProb">-</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">95%置信区间</span>
+                            <span class="result-value small" id="confidenceInterval">-</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">碰撞次数</span>
+                            <span class="result-value" id="collisionCount">-</span>
+                        </div>
+                        <div class="result-item">
+                            <span class="result-label">模拟次数</span>
+                            <span class="result-value" id="simulationCount">-</span>
+                        </div>
+                        <div class="result-item" id="timeStats" style="display: none;">
+                            <span class="result-label">平均碰撞时间</span>
+                            <span class="result-value" id="meanCollisionTime">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>系统状态</h3>
+                    <div class="status-indicators">
+                        <div class="status-item">
+                            <span class="status-dot" id="redisStatus"></span>
+                            <span>Redis缓存</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-dot" id="apiStatus"></span>
+                            <span>API服务</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="vehicleModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">编辑车辆参数</h3>
+                <button class="close-btn" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>初始速度 (m/s)</label>
+                    <input type="number" id="vInitialVelocity" step="0.1" value="10">
+                </div>
+                <div class="form-group">
+                    <label>加速度 (m/s²)</label>
+                    <input type="number" id="vAcceleration" step="0.1" value="0">
+                </div>
+                <div class="form-group">
+                    <label>车长 (m)</label>
+                    <input type="number" id="vLength" step="0.1" value="4.5">
+                </div>
+                <div class="form-group">
+                    <label>车宽 (m)</label>
+                    <input type="number" id="vWidth" step="0.1" value="2.0">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>起始X位置 (m)</label>
+                        <input type="number" id="vStartX" step="1" value="-30">
+                    </div>
+                    <div class="form-group">
+                        <label>起始Y位置 (m)</label>
+                        <input type="number" id="vStartY" step="1" value="0">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>行驶方向 (°)</label>
+                    <input type="number" id="vDirection" step="1" value="0">
+                </div>
+                <hr>
+                <h4>传感器噪声扰动</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>速度噪声标准差</label>
+                        <input type="number" id="vVelNoise" step="0.1" value="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>加速度噪声标准差</label>
+                        <input type="number" id="vAccNoise" step="0.1" value="0.2">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>位置噪声标准差</label>
+                    <input type="number" id="vPosNoise" step="0.1" value="0.1">
+                </div>
+                <div class="form-group">
+                    <label>车辆颜色</label>
+                    <input type="color" id="vColor" value="#3498db">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelVehicle">取消</button>
+                <button class="btn btn-primary" id="saveVehicle">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
